@@ -9,6 +9,10 @@ from datetime import datetime
 
 app = Flask(__name__)
 
+@app.route("/")
+def home():
+    return "VersoZap está funcionando!"
+
 from datetime import date
 
 def gerar_audio_versiculo(texto, nome_arquivo):
