@@ -15,13 +15,6 @@ def home():
 
 from datetime import date
 
-def gerar_audio_versiculo(texto, nome_arquivo):
-    tts = gTTS(text=texto, lang='pt')
-    caminho = f"audios/{nome_arquivo}.mp3"
-    os.makedirs("audios", exist_ok=True)
-    tts.save(caminho)
-    return caminho
-
 def enviar_leitura_diaria():
     db = SessionLocal()
     usuarios = db.query(Usuario).all()
@@ -74,10 +67,6 @@ def gerar_audio_versiculo(texto, nome_arquivo):
     os.makedirs("audios", exist_ok=True)
     tts.save(caminho)
     return caminho
-
-@app.route("/")
-def home():
-    return "VersoZap está funcionando!"
 
 @app.route("/versiculo")
 def versiculo():
@@ -194,12 +183,11 @@ def confirmar_leitura():
 
     return jsonify({"mensagem": "Leitura marcada como concluída"}), 200
 
-if __name__ == "__main__":
-    Base.metadata.create_all(bind=engine)
+from models import Base
+from database import engine
 
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(enviar_leitura_diaria, 'interval', minutes=1)  # verifica a cada minuto
-    scheduler.start()
-    
-    app.run(debug=True)
+Base.metadata.create_all(bind=engine)
 
+scheduler = BackgroundScheduler()
+scheduler.add_job(enviar_leitura_diaria, 'interval', minutes=1)
+scheduler.start()
