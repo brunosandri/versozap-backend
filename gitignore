@@ -1,0 +1,51 @@
+# Ambiente virtual
+.venv/
+venv/
+
+# Variáveis de ambiente
+.env
+.env.*
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+*.log
+logs/
+nohup.out
+
+# Banco de dados local (se aplicável)
+*.sqlite3
+*.db
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos de build (se usados)
+build/
+dist/
+*.egg-info/
+
+# PyInstaller
+*.spec
+
+# Configs de IDEs
+.vscode/
+.idea/
+
+# Testes e cobertura
+.coverage
+htmlcov/
+.tox/
+pytest_cache/
+
+# Arquivos temporários
+*.bak
+*.tmp
+*.swp
+
+# Docker (se estiver usando)
+docker-compose.override.yml

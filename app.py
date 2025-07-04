@@ -1,29 +1,33 @@
 from flask import Flask, jsonify, request
+from database import engine, SessionLocal
+from models import Base, Usuario, Leitura
+from apscheduler.schedulers.background import BackgroundScheduler
 from gtts import gTTS
 from datetime import datetime, timedelta, date
 import os
 import requests
+from dotenv import load_dotenv
 
-from database import engine, SessionLocal
-from models import Base, Usuario, Leitura
-from apscheduler.schedulers.background import BackgroundScheduler
+# Carrega variáveis do .env
+load_dotenv()
+
+SENDER_URL = os.getenv("SENDER_URL")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 app = Flask(__name__)
-
-# URL do sender (pode vir do Render)
-SENDER_URL = os.getenv("SENDER_URL", "http://localhost:3000/enviar")
 
 @app.route("/")
 def home():
     return "VersoZap está funcionando!"
 
-# Simulação de trechos por dia
+# Simulação de trechos bíblicos por dia
 TRECHOS_POR_DIA = {
     1: "Gênesis 1",
     2: "Gênesis 2",
     3: "Gênesis 3",
     4: "Mateus 1",
     5: "Salmos 1",
+    # ... continue até 365
 }
 
 def obter_trecho_do_dia():
@@ -37,9 +41,41 @@ def gerar_audio_versiculo(texto, nome_arquivo):
     tts.save(caminho)
     return caminho
 
+def enviar_leitura_diaria():
+    db = SessionLocal()
+    usuarios = db.query(Usuario).all()
+
+    for usuario in usuarios:
+        agora = datetime.now().strftime('%H:%M')
+        if usuario.horario_envio == agora:
+            trecho = obter_trecho_do_dia()
+            nova_leitura = Leitura(
+                usuario_id=usuario.id,
+                trecho=trecho,
+                concluido=False
+            )
+            db.add(nova_leitura)
+            db.commit()
+            db.refresh(nova_leitura)
+
+            caminho_audio = gerar_audio_versiculo(
+                trecho, f"audio_{usuario.id}_{nova_leitura.id}"
+            )
+
+            try:
+                requests.post(SENDER_URL, json={
+                    "telefone": usuario.telefone,
+                    "mensagem": f"Olá {usuario.nome}, seu versículo de hoje é:\n{trecho}",
+                    "audio": caminho_audio
+                })
+            except Exception as e:
+                print(f"[Erro WhatsApp] {usuario.nome}: {e}")
+
 @app.route("/versiculo")
 def versiculo():
-    return jsonify({"versiculo": "Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito."})
+    return jsonify({
+        "versiculo": "Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito."
+    })
 
 @app.route("/cadastrar", methods=["POST"])
 def cadastrar_usuario():
@@ -74,19 +110,14 @@ def enviar_leitura():
 
     db = SessionLocal()
     usuario = db.query(Usuario).filter_by(telefone=telefone).first()
-
     if not usuario:
         return jsonify({"erro": "Usuário não encontrado"}), 404
 
-    leitura_pendente = (
-        db.query(Leitura)
-        .filter(
-            Leitura.usuario_id == usuario.id,
-            Leitura.concluido == False,
-            Leitura.data >= datetime.now() - timedelta(days=2)
-        )
-        .first()
-    )
+    leitura_pendente = db.query(Leitura).filter(
+        Leitura.usuario_id == usuario.id,
+        Leitura.concluido == False,
+        Leitura.data >= datetime.now() - timedelta(days=2)
+    ).first()
 
     if leitura_pendente:
         trecho = leitura_pendente.trecho
@@ -103,8 +134,7 @@ def enviar_leitura():
         db.refresh(nova_leitura)
         id_leitura = nova_leitura.id
 
-    nome_arquivo_audio = f"audio_{usuario.id}_{id_leitura}"
-    caminho_audio = gerar_audio_versiculo(trecho, nome_arquivo_audio)
+    caminho_audio = gerar_audio_versiculo(trecho, f"audio_{usuario.id}_{id_leitura}")
 
     try:
         requests.post(SENDER_URL, json={
@@ -137,39 +167,9 @@ def confirmar_leitura():
 
     return jsonify({"mensagem": "Leitura marcada como concluída"}), 200
 
-# Inicializa o banco e o agendador
+# Inicialização
 Base.metadata.create_all(bind=engine)
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(lambda: enviar_leitura_diaria(), 'interval', minutes=1)
+scheduler.add_job(enviar_leitura_diaria, 'interval', minutes=1)
 scheduler.start()
-
-def enviar_leitura_diaria():
-    db = SessionLocal()
-    usuarios = db.query(Usuario).all()
-
-    for usuario in usuarios:
-        agora = datetime.now().strftime('%H:%M')
-        if usuario.horario_envio == agora:
-            trecho = obter_trecho_do_dia()
-            nova_leitura = Leitura(
-                usuario_id=usuario.id,
-                trecho=trecho,
-                concluido=False
-            )
-            db.add(nova_leitura)
-            db.commit()
-            db.refresh(nova_leitura)
-
-            nome_arquivo_audio = f"audio_{usuario.id}_{nova_leitura.id}"
-            caminho_audio = gerar_audio_versiculo(trecho, nome_arquivo_audio)
-
-            try:
-                requests.post(SENDER_URL, json={
-                    "telefone": usuario.telefone,
-                    "mensagem": f"Olá {usuario.nome}, seu versículo de hoje é:",
-                    "audio": caminho_audio
-                })
-            except Exception as e:
-                print(f"[Erro WhatsApp] {usuario.nome}: {e}")
-
