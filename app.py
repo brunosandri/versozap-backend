@@ -1,27 +1,29 @@
 from flask import Flask, jsonify, request
-from datetime import datetime, timedelta, date
-from apscheduler.schedulers.background import BackgroundScheduler
 from gtts import gTTS
+from datetime import datetime, timedelta, date
 import os
 import requests
 
-from database import SessionLocal, engine
+from database import engine, SessionLocal
 from models import Base, Usuario, Leitura
+from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
+
+# URL do sender (pode vir do Render)
+SENDER_URL = os.getenv("SENDER_URL", "http://localhost:3000/enviar")
 
 @app.route("/")
 def home():
     return "VersoZap está funcionando!"
 
-# Trechos bíblicos por dia (exemplo simples)
+# Simulação de trechos por dia
 TRECHOS_POR_DIA = {
     1: "Gênesis 1",
     2: "Gênesis 2",
     3: "Gênesis 3",
     4: "Mateus 1",
     5: "Salmos 1",
-    # continue até 365 conforme necessário
 }
 
 def obter_trecho_do_dia():
@@ -30,8 +32,8 @@ def obter_trecho_do_dia():
 
 def gerar_audio_versiculo(texto, nome_arquivo):
     tts = gTTS(text=texto, lang='pt')
-    caminho = f"audios/{nome_arquivo}.mp3"
     os.makedirs("audios", exist_ok=True)
+    caminho = f"audios/{nome_arquivo}.mp3"
     tts.save(caminho)
     return caminho
 
@@ -105,7 +107,7 @@ def enviar_leitura():
     caminho_audio = gerar_audio_versiculo(trecho, nome_arquivo_audio)
 
     try:
-        requests.post("https://versozap-sender-v2-production.up.railway.app/enviar", json={
+        requests.post(SENDER_URL, json={
             "telefone": usuario.telefone,
             "mensagem": f"Olá {usuario.nome}, seu versículo de hoje é:\n{trecho}",
             "audio": caminho_audio
@@ -135,6 +137,13 @@ def confirmar_leitura():
 
     return jsonify({"mensagem": "Leitura marcada como concluída"}), 200
 
+# Inicializa o banco e o agendador
+Base.metadata.create_all(bind=engine)
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(lambda: enviar_leitura_diaria(), 'interval', minutes=1)
+scheduler.start()
+
 def enviar_leitura_diaria():
     db = SessionLocal()
     usuarios = db.query(Usuario).all()
@@ -156,19 +165,11 @@ def enviar_leitura_diaria():
             caminho_audio = gerar_audio_versiculo(trecho, nome_arquivo_audio)
 
             try:
-                requests.post("https://versozap-sender-v2-production.up.railway.app/enviar", json={
+                requests.post(SENDER_URL, json={
                     "telefone": usuario.telefone,
                     "mensagem": f"Olá {usuario.nome}, seu versículo de hoje é:",
                     "audio": caminho_audio
                 })
             except Exception as e:
                 print(f"[Erro WhatsApp] {usuario.nome}: {e}")
-
-# Cria tabelas se ainda não existirem
-Base.metadata.create_all(bind=engine)
-
-# Agenda envio automático
-scheduler = BackgroundScheduler()
-scheduler.add_job(enviar_leitura_diaria, 'interval', minutes=1)
-scheduler.start()
 
