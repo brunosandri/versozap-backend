@@ -20,7 +20,34 @@ SECRET_KEY = os.getenv("SECRET_KEY", "versozap-dev")  # troque em produção
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 app = Flask(__name__)
-CORS(app, origins=["https://app.versozap.com.br", "http://localhost:5173"], supports_credentials=True)
+
+# CORS detalhado — apenas rotas /api/* precisam e-mail/telefone
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": [
+                "https://app.versozap.com.br",
+                "http://localhost:5173",
+            ],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "methods": ["GET", "POST", "OPTIONS"],
+        }
+    },
+    supports_credentials=False,  # não estamos usando cookies
+)
+
+# Fallback para outros endpoints (ex.: /enviar-leitura) — permite tudo
+@app.after_request
+def apply_cors_headers(resp):
+    # Se o Flask‑CORS já adicionou, não duplicamos
+    if "Access-Control-Allow-Origin" not in resp.headers:
+        origin = request.headers.get("Origin")
+        if origin and origin.startswith(("https://app.versozap.com.br", "http://localhost:5173")):
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+            resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    return resp
 
 # ---------------------------------------------------------------------------
 # Utilidades
@@ -57,11 +84,7 @@ def enviar_leitura_diaria():
         agora = datetime.now().strftime("%H:%M")
         if usuario.horario_envio == agora:
             trecho = obter_trecho_do_dia()
-            nova_leitura = Leitura(
-                usuario_id=usuario.id,
-                trecho=trecho,
-                concluido=False,
-            )
+            nova_leitura = Leitura(usuario_id=usuario.id, trecho=trecho, concluido=False)
             db.add(nova_leitura)
             db.commit()
             db.refresh(nova_leitura)
@@ -69,11 +92,14 @@ def enviar_leitura_diaria():
             caminho_audio = gerar_audio_versiculo(trecho, f"audio_{usuario.id}_{nova_leitura.id}")
 
             try:
-                requests.post(SENDER_URL, json={
-                    "telefone": usuario.telefone,
-                    "mensagem": f"Olá {usuario.nome}, seu versículo de hoje é:\n{trecho}",
-                    "audio": caminho_audio,
-                })
+                requests.post(
+                    SENDER_URL,
+                    json={
+                        "telefone": usuario.telefone,
+                        "mensagem": f"Olá {usuario.nome}, seu versículo de hoje é:\n{trecho}",
+                        "audio": caminho_audio,
+                    },
+                )
             except Exception as e:
                 print(f"[Erro WhatsApp] {usuario.nome}: {e}")
 
@@ -90,9 +116,7 @@ def home():
 
 @app.get("/versiculo")
 def versiculo():
-    return jsonify({
-        "versiculo": "Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito.",
-    })
+    return jsonify({"versiculo": "Porque Deus amou o mundo…"})
 
 # ---------------------------------------------------------------------------
 # Autenticação por E-MAIL
@@ -129,12 +153,9 @@ def login_email():
     db = SessionLocal()
     user = db.query(Usuario).filter_by(email=email).first()
     if not user or not check_password_hash(user.password_hash, password):
-        return jsonify(error="E-mail ou senha incorretos"), 401
+        return jsonify(error="Credenciais inválidas"), 401
 
-    payload = {
-        "sub": user.id,
-        "exp": datetime.utcnow() + timedelta(days=7),
-    }
+    payload = {"sub": user.id, "exp": datetime.utcnow() + timedelta(days=7)}
     token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
     return jsonify(token=token, user={"id": user.id, "nome": user.nome}), 200
