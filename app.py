@@ -784,8 +784,17 @@ log_success(LogCategory.SYSTEM, "VersoZap Backend inicializado com sucesso")
 
 if __name__ == "__main__":
     try:
-        log_info(LogCategory.SYSTEM, "Iniciando servidor Flask na porta 5000")
-        app.run(debug=True, port=5000)
+        port = int(os.getenv("PORT", 5000))
+        debug_mode = os.getenv("FLASK_ENV", "development") == "development"
+        
+        log_info(LogCategory.SYSTEM, f"Iniciando servidor Flask na porta {port}")
+        log_info(LogCategory.SYSTEM, f"Modo debug: {debug_mode}")
+        
+        app.run(
+            debug=debug_mode, 
+            port=port, 
+            host='0.0.0.0'  # Permite acesso externo em produção
+        )
     except KeyboardInterrupt:
         log_info(LogCategory.SYSTEM, "Servidor interrompido pelo usuário")
     except Exception as e:
