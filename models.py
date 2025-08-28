@@ -9,10 +9,13 @@ class Usuario(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String)
     telefone = Column(String, unique=True)
-    versao_biblia = Column(String)
-    plano_leitura = Column(String)
-    tipo_ordem = Column(String)  # normal ou cronológica
-    horario_envio = Column(String)
+    email = Column(String, unique=True)
+    password_hash = Column(String)
+    versao_biblia = Column(String, default="ARC")
+    plano_leitura = Column(String, default="cronologico")
+    tipo_ordem = Column(String, default="normal")  # normal ou cronológica
+    horario_envio = Column(String, default="08:00")
+    data_cadastro = Column(DateTime, default=datetime.datetime.utcnow)
 
     leituras = relationship("Leitura", back_populates="usuario")
 
