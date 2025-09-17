@@ -36,6 +36,8 @@ CORS(
             "origins": [
                 "https://app.versozap.com.br",
                 "http://localhost:5173",
+                "http://localhost:5174",
+                "http://localhost:5175",
             ],
             "allow_headers": ["Content-Type", "Authorization"],
             "methods": ["GET", "POST", "OPTIONS"],
@@ -50,7 +52,7 @@ def apply_cors_headers(resp):
     # Se o Flask‑CORS já adicionou, não duplicamos
     if "Access-Control-Allow-Origin" not in resp.headers:
         origin = request.headers.get("Origin")
-        if origin and origin.startswith(("https://app.versozap.com.br", "http://localhost:5173")):
+        if origin and origin.startswith(("https://app.versozap.com.br", "http://localhost:517")):
             resp.headers["Access-Control-Allow-Origin"] = origin
             resp.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
             resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
@@ -613,6 +615,53 @@ def validar_token():
         return jsonify({"erro": "Token inválido ou expirado"}), 401
     
     return jsonify({"valid": True, "user_id": payload["sub"], "email": payload["email"]})
+
+@app.post("/api/user/update-profile")
+def atualizar_perfil_usuario():
+    """Atualiza perfil do usuário com telefone e preferências"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({"erro": "Token não fornecido"}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = auth_service.validate_jwt_token(token)
+
+    if not payload:
+        return jsonify({"erro": "Token inválido"}), 401
+
+    data = request.get_json() or {}
+    user_id = payload["sub"]
+
+    db = SessionLocal()
+    usuario = db.query(Usuario).filter_by(id=user_id).first()
+    if not usuario:
+        return jsonify({"erro": "Usuário não encontrado"}), 404
+
+    # Atualiza campos se fornecidos
+    if data.get("telefone"):
+        usuario.telefone = data["telefone"]
+    if data.get("versao_biblia"):
+        usuario.versao_biblia = data["versao_biblia"]
+    if data.get("plano_leitura"):
+        usuario.plano_leitura = data["plano_leitura"]
+    if data.get("horario_envio"):
+        usuario.horario_envio = data["horario_envio"]
+
+    db.commit()
+    db.close()
+
+    return jsonify({
+        "mensagem": "Perfil atualizado com sucesso",
+        "usuario": {
+            "id": usuario.id,
+            "nome": usuario.nome,
+            "email": usuario.email,
+            "telefone": usuario.telefone,
+            "versao_biblia": usuario.versao_biblia,
+            "plano_leitura": usuario.plano_leitura,
+            "horario_envio": usuario.horario_envio
+        }
+    })
 
 # ---------------------------------------------------------------------------
 # Rotas de Administração (Logs e Database)
